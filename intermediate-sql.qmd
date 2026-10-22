@@ -1,0 +1,308 @@
+---
+title: "Intermediate SQL: Course Completion and Learning Notes"
+author: "Rosarie Maramag"
+date: today
+
+format:
+  html:
+    toc: true
+    toc-title: "Contents"
+    toc-depth: 3
+    number-sections: true
+    smooth-scroll: true
+    embed-resources: true
+---
+
+**Course:** IBM 6500\
+**Assignment:** SQL3 – Intermediate SQL (DataCamp)
+
+# Purpose and Overview
+
+The purpose of this assignment is to finalize the SQL and BigQuery learning portfolio for the IBM 6500 course by completing the Intermediate SQL course on DataCamp and documenting key query patterns. This report serves as a reusable reference for upcoming coursework and the MSDM Culminating Experience Project (CEP) by building upon previous knowledge from the introductory modules. The learning objectives focus on applying intermediate querying techniques, structuring sophisticated data retrieval logic, and documenting syntax clearly for marketing analytics applications.
+
+To complete the requirements, the DataCamp course was finished through the classroom portal and verified with the completion certificate saved as an image file. The existing GitHub repository was used without creating a new site, so all source files and rendered HTML documents remain organized within the correct directory structure. The Quarto project configuration directs outputs to the `docs` folder while maintaining a navigable table of contents and section numbering across all pages.
+
+The portfolio landing page (`index.qmd`) was updated to include active Markdown links pointing directly to the Introduction to SQL report, the Introduction to BigQuery report, and this Intermediate SQL report. The main deliverable is this Quarto file, which captures comprehensive learning notes structured by course chapters. Each chapter section details core concepts, essential syntax, appropriate use cases, concrete query examples with explanations, and specific applications to digital marketing data analysis.
+
+# Course Completion Evidence
+
+![](images/clipboard-2666352477.png)
+
+I completed the Intermediate SQL course through the IBM 6500 DataCamp classroom on **11/21/2026**.
+
+# Learning Notes and Key Takeaways
+
+The examples in this section use placeholder marketing tables rather than the course's films database, so that the patterns are easy to reuse in my CEP. The tables are:
+
+-   `sessions`: one row per website visit, with columns `session_id`, `campaign`, `channel`, `device`, `country`, `session_duration_sec`, `pages_viewed`, and `converted` (1 if the visit ended in a purchase or signup, otherwise 0).
+-   `orders`: one row per transaction, with columns `order_id`, `channel`, `order_date`, `revenue`, and `cost`.
+
+All of the data are hypothetical. No credentials, client data, or personally identifiable information are included.
+
+## Data Aggregation
+
+### Summary Values
+
+**Main ideas:** An aggregate function collapses many rows into a single summary value. `COUNT` tells me how many rows (or non-missing values) there are, `SUM` totals a numeric column, `AVG` gives the mean, and `MIN`/`MAX` return the extremes. Aggregates ignore `NULL` values, except `COUNT(*)`, which counts every row. This is different from an arithmetic operator such as `+`, which works across columns within one row rather than down a column.
+
+**Important SQL syntax:** `COUNT(*)`, `COUNT(column)`, `COUNT(DISTINCT column)`, `SUM()`, `AVG()`, `MIN()`, `MAX()`, and aliases with `AS`.
+
+**When to use it:** Whenever I need a headline number, such as total visits, total revenue, or the average time on site, before breaking the data into segments.
+
+**SQL example:**
+
+``` sql
+SELECT
+  COUNT(*)                   AS total_sessions,
+  COUNT(DISTINCT campaign)   AS campaigns_run,
+  AVG(session_duration_sec)  AS avg_duration_sec,
+  MAX(pages_viewed)          AS max_pages_viewed
+FROM sessions;
+```
+
+**Explanation:** This query returns a single row with four columns. It counts all sessions, counts how many different campaigns appear, averages session length, and finds the deepest visit. The aliases make the output columns readable.
+
+**CEP application:** These are the first checks I would run on any new dataset (a GA4 export, survey responses, or campaign logs) to understand its size and basic shape, and to spot suspicious values such as an unrealistic maximum.
+
+### One Grouping Column
+
+**Main ideas:** `GROUP BY` splits the rows into categories and calculates the aggregate separately for each category. Every column in `SELECT` must either be in the `GROUP BY` or be wrapped in an aggregate function.
+
+**Important SQL syntax:** `SELECT category, aggregate(...) FROM table GROUP BY category`.
+
+**When to use it:** When the question is "how does this metric compare across groups?" such as by channel, device, or country.
+
+**SQL example:**
+
+``` sql
+SELECT
+  channel,
+  COUNT(*)       AS sessions,
+  SUM(converted) AS conversions
+FROM sessions
+GROUP BY channel;
+```
+
+**Explanation:** The result has one row per marketing channel (for example, email, paid search, social), showing how many sessions each produced and how many converted. Because `converted` is stored as 1 or 0, summing it counts the conversions.
+
+**CEP application:** Comparing channel performance is a core marketing task. This pattern is the starting point for questions like "which channel drives the most conversions?"
+
+### Multiple Grouping Columns
+
+**Main ideas:** Listing more than one column in `GROUP BY` creates one row per unique combination of those columns. This reveals patterns that a single grouping can hide.
+
+**Important SQL syntax:** `GROUP BY column_a, column_b`.
+
+**When to use it:** When performance depends on two dimensions at once, such as channel and device type.
+
+**SQL example:**
+
+``` sql
+SELECT
+  channel,
+  device,
+  COUNT(*)       AS sessions,
+  SUM(converted) AS conversions
+FROM sessions
+GROUP BY channel, device;
+```
+
+**Explanation:** Each row represents a channel and device pair, such as email on mobile or paid search on desktop. Adding a second dimension multiplies the number of rows, so I need to be careful that the groups do not become too small to interpret.
+
+**CEP application:** I could discover, for instance, that a campaign converts well on desktop but poorly on mobile, which would suggest a landing page problem.
+
+## Data Transformation
+
+### Basic Transformations
+
+**Main ideas:** SQL can create new columns on the fly by combining or calculating values from existing columns. I can use arithmetic operators (`+`, `-`, `*`, `/`) and functions such as `ROUND`. These calculations happen row by row and do not change the underlying table. One common pitfall is integer division, which can truncate decimals, so I may need to cast a value to a decimal type first. In BigQuery, `SAFE_DIVIDE` handles division by zero by returning `NULL`.
+
+**Important SQL syntax:** Arithmetic in `SELECT`, `AS` aliases, `ROUND(value, digits)`, and `CAST(column AS FLOAT64)` in BigQuery.
+
+**When to use it:** When the metric I need, such as profit or a ratio, is not stored as a column in the data.
+
+**SQL example:**
+
+``` sql
+SELECT
+  order_id,
+  channel,
+  revenue - cost                        AS profit,
+  ROUND((revenue - cost) / revenue, 2)  AS profit_margin
+FROM orders;
+```
+
+**Explanation:** For each order, the query calculates profit as revenue minus cost, and then the profit margin as a share of revenue rounded to two decimals. The result has one row per order with the two new columns.
+
+**CEP application:** Metrics such as return on ad spend, cost per acquisition, and conversion rate are all derived columns. This pattern lets me build them directly in a query.
+
+### Complex Transformations
+
+**Main ideas:** Some metrics need several steps, such as calculating a total first and then using it as the denominator for a percentage. Because a column alias cannot be reused in the same `SELECT`, I calculate the intermediate value in a subquery (or a common table expression) and then reference it. This is how I compute each group's percentage of the overall total.
+
+**Important SQL syntax:** Subqueries in `SELECT` or `FROM`, `WITH ... AS (...)` common table expressions, and nested calculations.
+
+**When to use it:** When one calculation depends on the result of another, such as share of total revenue or percent change.
+
+**SQL example:**
+
+``` sql
+SELECT
+  channel,
+  SUM(revenue) AS channel_revenue,
+  ROUND(
+    100.0 * SUM(revenue) / (SELECT SUM(revenue) FROM orders),
+    1
+  ) AS pct_of_total_revenue
+FROM orders
+GROUP BY channel;
+```
+
+**Explanation:** The inner query `(SELECT SUM(revenue) FROM orders)` calculates total revenue across all orders once. The outer query divides each channel's revenue by that total and multiplies by 100 to get a percentage. The percentages should add up to roughly 100.
+
+**CEP application:** This pattern shows how a campaign budget or customer segment contributes to the whole, which is useful for reporting and for deciding where to allocate spending.
+
+## Data Filtering
+
+### Basic Filtering
+
+**Main ideas:** `WHERE` keeps only the rows that satisfy a condition, so the analysis focuses on a relevant subset. Comparison operators (`=`, `<>`, `>`, `<`, `>=`, `<=`) work on numbers, text, and dates. Missing values require `IS NULL` or `IS NOT NULL` because `= NULL` never works. `LIKE` matches text patterns, where `%` stands for any number of characters.
+
+**Important SQL syntax:** `WHERE`, comparison operators, `IS NULL`, `IS NOT NULL`, `LIKE '%pattern%'`.
+
+**When to use it:** To remove irrelevant or incomplete rows before summarizing, or to find records that match a text pattern such as a campaign name.
+
+**SQL example:**
+
+``` sql
+SELECT session_id, campaign, session_duration_sec
+FROM sessions
+WHERE campaign LIKE '%holiday%'
+  AND session_duration_sec IS NOT NULL;
+```
+
+**Explanation:** The query returns sessions whose campaign name contains "holiday" and that have a recorded duration. Each qualifying session is one row in the result.
+
+**CEP application:** Campaign naming conventions (such as UTM parameters) often encode information in text, so `LIKE` helps me isolate campaigns. Filtering out `NULL` values helps me clean data before analysis.
+
+### Multiple Conditions
+
+**Main ideas:** I can combine conditions with `AND` (all must be true) and `OR` (at least one must be true). `BETWEEN` and `IN` shorten common patterns. When mixing `AND` and `OR`, parentheses are essential because `AND` is evaluated before `OR`, which can silently change the meaning of the query.
+
+**Important SQL syntax:** `AND`, `OR`, `BETWEEN low AND high` (inclusive), `IN (...)`, and parentheses.
+
+**When to use it:** When defining a precise audience or time window, such as mobile visitors from two countries during a certain period.
+
+**SQL example:**
+
+``` sql
+SELECT session_id, channel, country, pages_viewed
+FROM sessions
+WHERE (channel = 'email' OR channel = 'social')
+  AND country IN ('US', 'CA')
+  AND pages_viewed BETWEEN 3 AND 10;
+```
+
+**Explanation:** Rows are returned only if the channel is email or social, the country is the US or Canada, and the visitor viewed between 3 and 10 pages (inclusive). The parentheses ensure the `OR` is evaluated before the `AND`.
+
+**CEP application:** Customer segmentation relies on combining criteria like this, for example engaged visitors from selected markets.
+
+### Complex Filtering
+
+**Main ideas:** When filter logic gets complicated, I can make it easier to read and verify by calculating each condition as its own column in a subquery or CTE, and then filtering on those columns. I can also retrieve the opposite of a filter, using `NOT` or by selecting everything that does not meet the condition, which helps confirm that no rows were lost or misclassified.
+
+**Important SQL syntax:** `WITH ... AS (...)`, boolean expressions in `SELECT`, `NOT`, and `NOT IN`.
+
+**When to use it:** When a `WHERE` clause becomes long and hard to check, or when I want to audit what my filter excluded.
+
+**SQL example:**
+
+``` sql
+WITH flagged AS (
+  SELECT
+    session_id,
+    channel,
+    (pages_viewed >= 5)            AS is_engaged,
+    (session_duration_sec >= 120)  AS is_long_visit
+  FROM sessions
+)
+SELECT *
+FROM flagged
+WHERE is_engaged AND is_long_visit;
+```
+
+**Explanation:** The CTE `flagged` adds two true/false columns, one for engagement and one for visit length. The final query keeps only rows where both are true. To audit the filter, I could change the last line to `WHERE NOT (is_engaged AND is_long_visit)` to see every row that was excluded.
+
+**CEP application:** Defining "engaged user" or "qualified lead" as named columns documents the business rule clearly and makes my analysis more transparent and easier for others to check.
+
+## Conditional Operations
+
+### Conditional Transformation
+
+**Main ideas:** The `CASE WHEN` expression applies different logic depending on conditions, similar to an if-else statement. It can standardize inconsistent values or classify rows into categories. Conditions are checked in order, and the first one that is true wins, with `ELSE` as the fallback.
+
+**Important SQL syntax:** `CASE WHEN condition THEN result ... ELSE default END`.
+
+**When to use it:** To build segments, labels, or buckets that do not exist in the raw data, such as grouping session length into short, medium, and long.
+
+**SQL example:**
+
+``` sql
+SELECT
+  session_id,
+  session_duration_sec,
+  CASE
+    WHEN session_duration_sec < 30  THEN 'short'
+    WHEN session_duration_sec < 180 THEN 'medium'
+    ELSE 'long'
+  END AS visit_length_group
+FROM sessions;
+```
+
+**Explanation:** Each session receives a label based on its duration. A 20-second visit is "short" and a 100-second visit is "medium." Anything else, 180 seconds or more, falls to `ELSE` and is "long."
+
+**CEP application:** I can group survey respondents into age bands, label customers as new or returning, or standardize messy channel names before grouping them.
+
+### Conditional Aggregation
+
+**Main ideas:** Putting a `CASE WHEN` inside an aggregate function lets me summarize only the rows that meet a condition, while still grouping by another column. This allows several filtered metrics in one query, instead of writing separate queries.
+
+**Important SQL syntax:** `SUM(CASE WHEN ... THEN 1 ELSE 0 END)`, `AVG(CASE WHEN ... THEN value END)`, combined with `GROUP BY`. In BigQuery, `COUNTIF(condition)` is a shortcut.
+
+**When to use it:** When I need metrics like "average duration of mobile visits only" for each group, or counts of different event types side by side.
+
+**SQL example:**
+
+``` sql
+SELECT
+  channel,
+  COUNT(*) AS total_sessions,
+  SUM(CASE WHEN device = 'mobile' THEN 1 ELSE 0 END) AS mobile_sessions,
+  AVG(CASE WHEN converted = 1 THEN session_duration_sec END) AS avg_duration_converters
+FROM sessions
+GROUP BY channel;
+```
+
+**Explanation:** For each channel, the query shows all sessions, how many came from mobile devices, and the average duration of only the visits that converted. Rows that do not meet the condition produce `NULL` in the `AVG(CASE ...)`, and `AVG` ignores `NULL` values, so only the converting sessions are averaged.
+
+**CEP application:** This pattern lets me build a compact channel scorecard (visits, mobile share, converter behavior) in one pass, and it works well with GA4 event data, where I often need to count specific event types per campaign.
+
+# Overall Reflection and Series Synthesis
+
+**Most useful concepts.** The most useful pattern was combining `GROUP BY` with aggregate functions, especially conditional aggregation using `CASE WHEN` inside `SUM` or `AVG`. It lets me build a whole summary table in a single query. Filtering with `WHERE` and using `LIKE` to find campaign names was also immediately practical.
+
+**Most challenging concepts.** The most challenging ideas were the difference between `WHERE` and `HAVING`, and understanding why a column alias cannot be reused in the same `SELECT`. I resolved this by remembering the order in which SQL evaluates a query: rows are filtered with `WHERE` first, then grouped, then aggregates are calculated, and only then are aliases available. Wrapping the earlier step in a subquery or CTE solved the alias problem. Rewriting practice queries in that evaluation order helped the most.
+
+**Extending Introduction to SQL.** Introduction to SQL showed me how to select and retrieve data. This course taught me how to summarize, segment, and transform it, moving from looking at individual rows to answering analytical questions about groups, percentages, and categories.
+
+**Applying these skills in BigQuery.** The syntax carries over directly to BigQuery's Standard SQL, with helpful additions such as `COUNTIF` and `SAFE_DIVIDE`. Because BigQuery charges by the amount of data scanned, filtering early and selecting only the columns I need will also help control cost. The CTE patterns will keep longer queries over GA4 export tables readable.
+
+**Supporting marketing analytics and the CEP.** These skills support the core tasks of digital marketing analysis: comparing channels and campaigns, segmenting audiences, calculating metrics like conversion rate and return on ad spend, and defining business rules (such as an "engaged session") in a transparent way. For survey research, the same patterns can summarize responses by demographic group. For GA4 analysis, they provide a foundation for turning event-level data into campaign-level insights for my CEP.
+
+**Sections I expect to consult again.** I expect to return most often to the Conditional Operations notes for `CASE WHEN` patterns, the Complex Transformations notes for percent-of-total calculations, and the Introduction to BigQuery report when I begin working with real GA4 data.
+
+# Appendix: Publication Links
+
+-   [GitHub Repository](https://github.com/YOUR-USERNAME/REPOSITORY-NAME)
+-   [Published Intermediate SQL Report](https://YOUR-USERNAME.github.io/REPOSITORY-NAME/intermediate-sql.html)
+-   [Published Portfolio Landing Page](https://YOUR-USERNAME.github.io/REPOSITORY-NAME/index.html)
